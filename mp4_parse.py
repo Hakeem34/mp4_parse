@@ -19,10 +19,22 @@ BOX_SIZE_EXTEND         = 0x00000001
 SIZE_BOX_SIZE_EX        = 8
 
 SIZE_BOX_TYPE           = 4
+BOX_TYPE_ROOT           = 'root'          #/* 仮想のルートBOX */
 BOX_TYPE_MOOV           = 'moov'
 BOX_TYPE_MOOV_HEADER    = 'mvhd'
 BOX_TYPE_TRACK          = 'trak'
 BOX_TYPE_TRACK_HEADER   = 'tkhd'
+BOX_TYPE_EDTS           = 'edts'
+BOX_TYPE_MEDIA          = 'mdia'
+BOX_TYPE_MEDIA_HEADER   = 'mdhd'
+BOX_TYPE_MEDIA_INFO     = 'minf'
+BOX_TYPE_DATA_INFO      = 'dinf'
+BOX_TYPE_STBL           = 'stbl'
+BOX_TYPE_UDTA           = 'udta'
+BOX_TYPE_META           = 'meta'
+BOX_TYPE_MVEX           = 'mvex'
+
+
 
 SIZE_MVHD_VERSION       = 1
 SIZE_MVHD_FLAG          = 3
@@ -47,19 +59,34 @@ SIZE_TKHD_WIDTH         = 4
 SIZE_TKHD_HEIGHT        = 4
 
 
+#PARENT_BOX_LIST         = ['moov', 'trak', 'edts', 'mdia', 'minf', 'dinf', 'stbl', 'udta', 'meta', 'mvex']
+PARENT_BOX_LIST         = [
+                              BOX_TYPE_MOOV,
+                              BOX_TYPE_TRACK,
+                              BOX_TYPE_EDTS,
+                              BOX_TYPE_MEDIA,
+                              BOX_TYPE_MEDIA_INFO,
+                              BOX_TYPE_DATA_INFO,
+                              BOX_TYPE_STBL,
+                              BOX_TYPE_META,
+                              BOX_TYPE_MVEX
+                          ]
+
 
 
 #####################################################
 # BOX定義クラス
 #####################################################
 class cMP4_box:
-    def __init__(self, addr, size, type):
+    def __init__(self, addr, header_size, size, type, depth):
         self.addr                   = addr
+        self.header_size            = header_size
         self.size                   = size
         self.type                   = type
         self.is_leaf                = 0
         self.children               = []
         self.body                   = None
+        self.depth                  = depth
         return
 
     def add_child(self, box_data):
@@ -108,7 +135,8 @@ class cMP4_mvhd:
 #####################################################
 # box情報読み出し
 #####################################################
-def read_box_header(file, indent):
+def read_box_header(file, depth):
+#   print("read_box_header depth:%d" % depth)
     addr = file.seek(0, os.SEEK_CUR)
     data = file.read(SIZE_BOX_SIZE)
     block_size = int.from_bytes(data, byteorder='big')
@@ -119,18 +147,50 @@ def read_box_header(file, indent):
     if (block_size == BOX_SIZE_EXTEND):
         data = file.read(SIZE_BOX_SIZE_EX)
         block_size = int.from_bytes(data, byteorder='big')
+        header_size = SIZE_BOX_SIZE + SIZE_BOX_TYPE + SIZE_BOX_SIZE_EX
+    else:
+        header_size = SIZE_BOX_SIZE + SIZE_BOX_TYPE
 
 
+#   print("[%08x]+[%08x][%d]" % (addr, block_size, depth), end = "")
     print("[%08x]+[%08x]" % (addr, block_size), end = "")
-    while(indent > 0):
-        print(" ", end = "")
-        indent -= 1
+    print("  " * (depth - 1), end = "")
 
 #   print("block_size : 0x%08x block_type : %s" % (block_size, block_type))
     print("[%s]" % (block_type))
 
-    box_data = cMP4_box(addr, block_size, block_type)
+    box_data = cMP4_box(addr, header_size, block_size, block_type, depth)
     return box_data
+
+
+#####################################################
+# Media Header情報読み出し
+#####################################################
+def read_media_header_data(file, parent_box):
+    return
+
+
+#####################################################
+# mdia boxの情報読み出し
+#####################################################
+def read_media_box(file, parent_box):
+    index = file.seek(0, os.SEEK_CUR)
+    read_size = 0
+    end_of_box = parent_box.addr + parent_box.size
+
+#   print ("  index:0x%08x, end_of_box:0x%08x" % (index, end_of_box))
+    while (index < end_of_box):
+        box_data = read_box_header(file, 6)
+        read_size += box_data.size
+
+        if (box_data.type == BOX_TYPE_MEDIA_HEADER):
+            read_media_header_data(file, box_data)
+
+        index = file.seek(index + box_data.size)
+#       print ("    index:0x%08x, read_size:%d" % (index, read_size))
+        parent_box.add_child(box_data)
+
+    return read_size
 
 
 #####################################################
@@ -258,46 +318,30 @@ def read_moov_header_data(file, parent_box):
 
 
 #####################################################
-# trak boxの情報読み出し
+# 親となるboxの情報読み出し
 #####################################################
-def read_track_box(file, parent_box):
-    index = file.seek(0, os.SEEK_CUR)
-    read_size = 0
-    end_of_box = parent_box.addr + parent_box.size
-
-#   print ("  index:0x%08x, end_of_box:0x%08x" % (index, end_of_box))
-    while (index < end_of_box):
-        box_data = read_box_header(file, 4)
-        read_size += box_data.size
-
-        if (box_data.type == BOX_TYPE_TRACK_HEADER):
-            read_track_header_data(file, box_data)
-
-        index = file.seek(index + box_data.size)
-#       print ("    index:0x%08x, read_size:%d" % (index, read_size))
-        parent_box.add_child(box_data)
-
-    return read_size
-
-
-#####################################################
-# moov boxの情報読み出し
-#####################################################
-def read_moov_box(file, parent_box):
+def read_parent_box(file, parent_box):
     read_size = 0
     index = file.seek(0, os.SEEK_CUR)
+#   print("read_parent_box start depth : %d, size:%d" % (parent_box.depth, parent_box.size))
     while (read_size < parent_box.size):
-        box_data = read_box_header(file, 2)
-        read_size += box_data.size
+        box_data = read_box_header(file, parent_box.depth + 1)
+        read_size += (box_data.header_size + box_data.size)
 
         if (box_data.type == BOX_TYPE_MOOV_HEADER):
             read_moov_header_data(file, box_data)
-        elif (box_data.type == BOX_TYPE_TRACK):
-            read_track_box(file, box_data)
+        elif (box_data.type == BOX_TYPE_TRACK_HEADER):
+            read_track_header_data(file, box_data)
+        else:
+            for parent_box_type in PARENT_BOX_LIST:
+                if (box_data.type == parent_box_type):
+                    read_parent_box(file, box_data)
+
 
         index = file.seek(index + box_data.size)
         parent_box.add_child(box_data)
 
+#   print("read_parent_box end   depth : %d" % parent_box.depth)
     return read_size
 
 
@@ -307,8 +351,6 @@ def read_moov_box(file, parent_box):
 def parse_file_mp4(file_path):
     global g_sections
     global g_option_stdout
-
-    index = 0
 
     if (g_option_stdout == 0):
         #/* 標準出力オプションでなければ、対象ファイル名に.txtを付与して出力 */
@@ -321,23 +363,9 @@ def parse_file_mp4(file_path):
     f = open(file_path, 'rb')
     eof = f.seek(0,os.SEEK_END)
     print("eof : 0x%08x" % eof)
-
+    root_box = cMP4_box(0, 0, eof, BOX_TYPE_ROOT, 0)
     f.seek(0)
-    box_data = read_box_header(f, 0)
-    block_size = box_data.size
-    index = f.seek(index + block_size)
-#   print("index : 0x%08x" % index)
-
-    while (index < eof):
-        box_data = read_box_header(f, 0)
-        block_size = box_data.size
-
-        if (box_data.type == BOX_TYPE_MOOV):
-            read_moov_box(f, box_data)
-
-        index = f.seek(index + block_size)
-
-#       print("index : 0x%08x" % index)
+    read_parent_box(f, root_box)
 
     parse_end(start_time)
     f.close()
