@@ -33,23 +33,23 @@ BOX_TYPE_STBL           = 'stbl'
 BOX_TYPE_UDTA           = 'udta'
 BOX_TYPE_META           = 'meta'
 BOX_TYPE_MVEX           = 'mvex'
+BOX_TYPE_VM_HEADER      = 'vmhd'
 
 
+#/* ヘッダ共通定義 */
+SIZE_HEADER_VERSION     = 1
+SIZE_HEADER_FLAG        = 3
+SIZE_HEADER_VER0_SIZE   = 4
+SIZE_HEADER_VER1_SIZE   = 8
+SIZE_HEADER_TIME_SCALE  = 4
 
-SIZE_MVHD_VERSION       = 1
-SIZE_MVHD_FLAG          = 3
-SIZE_MVHD_VER0_SIZE     = 4
-SIZE_MVHD_VER1_SIZE     = 8
-SIZE_MVHD_TIME_SCALE    = 4
+#/* mvhd関連定義 */
 SIZE_MVHD_RATE          = 4
 SIZE_MVHD_VOLUME        = 2
 SIZE_MVHD_MATRIX        = 36
 SIZE_MVHD_NEXT_TRACK_ID = 4
 
-SIZE_TKHD_VERSION       = 1
-SIZE_TKHD_FLAG          = 3
-SIZE_TKHD_VER0_SIZE     = 4
-SIZE_TKHD_VER1_SIZE     = 8
+#/* tkhd関連定義 */
 SIZE_TKHD_TRACK_ID      = 4
 SIZE_TKHD_LAYER         = 2
 SIZE_TKHD_ATG           = 2
@@ -57,6 +57,14 @@ SIZE_TKHD_VOLUME        = 2
 SIZE_TKHD_MATRIX        = 36
 SIZE_TKHD_WIDTH         = 4
 SIZE_TKHD_HEIGHT        = 4
+
+#/* mdhd関連定義 */
+SIZE_MDHD_LANGUAGE      = 2
+SIZE_MDHD_RESERVE       = 2
+
+#/* vmhd関連定義 */
+SIZE_VMHD_GRAPH_MODE    = 2
+SIZE_VMHD_OP_COLOR      = 2
 
 
 #PARENT_BOX_LIST         = ['moov', 'trak', 'edts', 'mdia', 'minf', 'dinf', 'stbl', 'udta', 'meta', 'mvex']
@@ -91,6 +99,36 @@ class cMP4_box:
 
     def add_child(self, box_data):
         self.children.append(box_data)
+        return
+
+
+#####################################################
+# ビデオメディアヘッダ定義クラス
+#####################################################
+class cMP4_vmhd:
+    def __init__(self):
+        self.version                = 0
+        self.flag                   = 0
+        self.graphics_mode          = 0
+        self.op_color_red           = 0
+        self.op_color_green         = 0
+        self.op_color_blue          = 0
+        return
+
+
+#####################################################
+# メディアヘッダ定義クラス
+#####################################################
+class cMP4_mdhd:
+    def __init__(self):
+        self.version                = 0
+        self.flag                   = 0
+        self.created_time           = 0
+        self.modified_time          = 0
+        self.time_scale             = 0
+        self.duration               = 0
+        self.language               = 0
+        self.reserve                = 0
         return
 
 
@@ -166,31 +204,85 @@ def read_box_header(file, depth):
 #####################################################
 # Media Header情報読み出し
 #####################################################
-def read_media_header_data(file, parent_box):
+def read_video_media_header_data(file, parent_box):
+    vmhd = cMP4_vmhd()
+
+    data = file.read(SIZE_HEADER_VERSION)
+    vmhd.version = int.from_bytes(data, byteorder='big')
+    if (vmhd.version == 0):
+        read_size = SIZE_HEADER_VER0_SIZE
+    else:
+        read_size = SIZE_HEADER_VER1_SIZE
+
+    data = file.read(SIZE_HEADER_FLAG)
+    vmhd.flag = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_VMHD_GRAPH_MODE)
+    vmhd.graphics_mode = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_VMHD_OP_COLOR)
+    vmhd.op_color_red = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_VMHD_OP_COLOR)
+    vmhd.op_color_green = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_VMHD_OP_COLOR)
+    vmhd.op_color_blue = int.from_bytes(data, byteorder='big')
+
+    print("    vmhd : version   : 0x%02x" % vmhd.version)
+    print("    vmhd : flag      : 0x%06x" % vmhd.flag)
+    print("    vmhd : graph mode: 0x%04x" % vmhd.graphics_mode)
+    print("    vmhd : op col R  : 0x%04x" % vmhd.op_color_red)
+    print("    vmhd : op col G  : 0x%04x" % vmhd.op_color_green)
+    print("    vmhd : op col B  : 0x%04x" % vmhd.op_color_blue)
+    parent_box.body = vmhd
     return
 
 
 #####################################################
-# mdia boxの情報読み出し
+# Media Header情報読み出し
 #####################################################
-def read_media_box(file, parent_box):
-    index = file.seek(0, os.SEEK_CUR)
-    read_size = 0
+def read_media_header_data(file, parent_box):
+    mdhd = cMP4_mdhd()
     end_of_box = parent_box.addr + parent_box.size
 
-#   print ("  index:0x%08x, end_of_box:0x%08x" % (index, end_of_box))
-    while (index < end_of_box):
-        box_data = read_box_header(file, 6)
-        read_size += box_data.size
+    data = file.read(SIZE_HEADER_VERSION)
+    mdhd.version = int.from_bytes(data, byteorder='big')
+    if (mdhd.version == 0):
+        read_size = SIZE_HEADER_VER0_SIZE
+    else:
+        read_size = SIZE_HEADER_VER1_SIZE
 
-        if (box_data.type == BOX_TYPE_MEDIA_HEADER):
-            read_media_header_data(file, box_data)
+    data = file.read(SIZE_HEADER_FLAG)
+    mdhd.flag = int.from_bytes(data, byteorder='big')
 
-        index = file.seek(index + box_data.size)
-#       print ("    index:0x%08x, read_size:%d" % (index, read_size))
-        parent_box.add_child(box_data)
+    data = file.read(read_size)
+    mdhd.created_time = int.from_bytes(data, byteorder='big')
+    data = file.read(read_size)
+    mdhd.modified_time = int.from_bytes(data, byteorder='big')
 
-    return read_size
+    data = file.read(SIZE_HEADER_TIME_SCALE)
+    mdhd.time_scale = int.from_bytes(data, byteorder='big')
+
+    data = file.read(read_size)
+    mdhd.duration = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_MDHD_LANGUAGE)
+    mdhd.language = int.from_bytes(data, byteorder='big')
+
+    data = file.read(SIZE_MDHD_RESERVE)
+    mdhd.reserve = int.from_bytes(data, byteorder='big')
+
+
+    print("    mdhd : version   : 0x%02x" % mdhd.version)
+    print("    mdhd : flag      : 0x%06x" % mdhd.flag)
+    print("    mdhd : c time    : 0x%08x" % mdhd.created_time)
+    print("    mdhd : m time    : 0x%08x" % mdhd.modified_time)
+    print("    mdhd : duration  : 0x%08x" % mdhd.duration)
+    print("    mdhd : language  : 0x%04x" % mdhd.language)
+    print("    mdhd : reserve   : 0x%04x" % mdhd.reserve)
+    parent_box.body = mdhd
+    return
 
 
 #####################################################
@@ -200,14 +292,14 @@ def read_track_header_data(file, parent_box):
     tkhd = cMP4_tkhd()
     end_of_box = parent_box.addr + parent_box.size
 
-    data = file.read(SIZE_TKHD_VERSION)
+    data = file.read(SIZE_HEADER_VERSION)
     tkhd.version = int.from_bytes(data, byteorder='big')
     if (tkhd.version == 0):
-        read_size = SIZE_TKHD_VER0_SIZE
+        read_size = SIZE_HEADER_VER0_SIZE
     else:
-        read_size = SIZE_TKHD_VER1_SIZE
+        read_size = SIZE_HEADER_VER1_SIZE
 
-    data = file.read(SIZE_TKHD_FLAG)
+    data = file.read(SIZE_HEADER_FLAG)
     tkhd.flag = int.from_bytes(data, byteorder='big')
 
     data = file.read(read_size)
@@ -266,14 +358,14 @@ def read_moov_header_data(file, parent_box):
     tkhd = cMP4_mvhd()
     end_of_box = parent_box.addr + parent_box.size
 
-    data = file.read(SIZE_MVHD_VERSION)
+    data = file.read(SIZE_HEADER_VERSION)
     tkhd.version = int.from_bytes(data, byteorder='big')
     if (tkhd.version == 0):
-        read_size = SIZE_MVHD_VER0_SIZE
+        read_size = SIZE_HEADER_VER0_SIZE
     else:
-        read_size = SIZE_MVHD_VER1_SIZE
+        read_size = SIZE_HEADER_VER1_SIZE
 
-    data = file.read(SIZE_MVHD_FLAG)
+    data = file.read(SIZE_HEADER_FLAG)
     tkhd.flag = int.from_bytes(data, byteorder='big')
 
     data = file.read(read_size)
@@ -281,7 +373,7 @@ def read_moov_header_data(file, parent_box):
     data = file.read(read_size)
     tkhd.modified_time = int.from_bytes(data, byteorder='big')
 
-    data = file.read(SIZE_MVHD_TIME_SCALE)
+    data = file.read(SIZE_HEADER_TIME_SCALE)
     tkhd.time_scale = int.from_bytes(data, byteorder='big')
 
     data = file.read(read_size)
@@ -332,6 +424,10 @@ def read_parent_box(file, parent_box):
             read_moov_header_data(file, box_data)
         elif (box_data.type == BOX_TYPE_TRACK_HEADER):
             read_track_header_data(file, box_data)
+        elif (box_data.type == BOX_TYPE_MEDIA_HEADER):
+            read_media_header_data(file, box_data)
+        elif (box_data.type == BOX_TYPE_VM_HEADER):
+            read_video_media_header_data(file, box_data)
         else:
             for parent_box_type in PARENT_BOX_LIST:
                 if (box_data.type == parent_box_type):
